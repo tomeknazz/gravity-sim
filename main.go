@@ -320,57 +320,96 @@ func drawArrowWithHead(img *ebiten.Image, x0, y0, x1, y1 float64, clr color.RGBA
 }
 
 // drawForceGraph rysuje prosty wykres liniowy w podanym prostokącie
-func drawForceGraph(screen *ebiten.Image, data []float64, x, y, w, h int) {
-	if len(data) == 0 {
-		return
-	}
+// obsługuje autoskalowanie po osi Y, w tym zakresy ujemne.
+func drawForceGraph(screen *ebiten.Image, data []float64, x, y, w, h int, lineColor color.RGBA, title string) {
+	// tło i obramowanie (zawsze rysujemy panel nawet gdy brak danych)
 	bg := ebiten.NewImage(w, h)
 	bg.Fill(color.RGBA{8, 8, 16, 200})
 	op := &ebiten.DrawImageOptions{}
 	op.GeoM.Translate(float64(x), float64(y))
 	screen.DrawImage(bg, op)
 
-	// obramowanie
 	border := ebiten.NewImage(w-2, h-2)
 	border.Fill(color.RGBA{30, 30, 40, 80})
 	op2 := &ebiten.DrawImageOptions{}
 	op2.GeoM.Translate(float64(x+1), float64(y+1))
 	screen.DrawImage(border, op2)
 
-	maxV := 0.0
+	if title != "" {
+		text.Draw(screen, title, basicfont.Face7x13, x+6, y+14, color.RGBA{220, 220, 220, 200})
+	}
+
+	if len(data) == 0 {
+		// brak danych - pozostaw panel
+		return
+	}
+
+	// znajdź min i max
+	minV := data[0]
+	maxV := data[0]
 	for _, v := range data {
+		if v < minV {
+			minV = v
+		}
 		if v > maxV {
 			maxV = v
 		}
 	}
-	if maxV <= 0 {
-		maxV = 1
+
+	// jeśli mamy wartości po obu stronach 0, ustaw symetryczny zakres wokół zera
+	if minV < 0 && maxV > 0 {
+		b := math.Max(math.Abs(minV), math.Abs(maxV))
+		minV = -b
+		maxV = b
 	}
+
+	// jeśli min==max, rozszerz zakres
+	if minV == maxV {
+		maxV = maxV + 1.0
+		minV = minV - 1.0
+	} else {
+		pad := 0.05 * (maxV - minV)
+		maxV += pad
+		minV -= pad
+	}
+
 	padding := 6
 	gw := float64(w - padding*2)
 	gh := float64(h - padding*2)
+
+	// rysuj siatkę (4 poziome linie)
 	for i := 0; i <= 4; i++ {
 		yy := float64(y+padding) + gh*float64(i)/4.0
 		drawLine(screen, float64(x+padding), yy, float64(x+w-padding), yy, color.RGBA{40, 40, 60, 120})
 	}
+
+	// linia zero (jeśli w zakresie)
+	if minV <= 0 && maxV >= 0 {
+		t := (0 - minV) / (maxV - minV)
+		zy := float64(y+padding) + gh*(1.0-t)
+		drawLine(screen, float64(x+padding), zy, float64(x+w-padding), zy, color.RGBA{150, 150, 150, 140})
+	}
+
+	// rysuj dane
 	n := len(data)
-	if n < 2 {
-		return
-	}
-	stepX := gw / float64(n-1)
-	var px, py float64
-	for i, v := range data {
-		nx := float64(x+padding) + stepX*float64(i)
-		nv := v / maxV
-		ny := float64(y+padding) + gh*(1.0-nv)
-		if i > 0 {
-			drawLine(screen, px, py, nx, ny, color.RGBA{180, 220, 255, 255})
+	if n >= 2 {
+		stepX := gw / float64(n-1)
+		var px, py float64
+		for i, v := range data {
+			nx := float64(x+padding) + stepX*float64(i)
+			t := (v - minV) / (maxV - minV)
+			ny := float64(y+padding) + gh*(1.0-t)
+			if i > 0 {
+				drawLine(screen, px, py, nx, ny, lineColor)
+			}
+			px = nx
+			py = ny
 		}
-		px = nx
-		py = ny
 	}
-	lbl := fmt.Sprintf("max=%.3e", maxV)
-	text.Draw(screen, lbl, basicfont.Face7x13, x+8, y+12, color.RGBA{180, 180, 200, 255})
+
+	// etykieta zakresu
+	lbl := fmt.Sprintf("%.3e..%.3e", minV, maxV)
+	text.Draw(screen, lbl, basicfont.Face7x13, x+6, y+h-6, color.RGBA{180, 180, 200, 180})
 }
 
 // Draw ---
@@ -445,14 +484,14 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		step := graphH + 8
 		if g.showComponents {
 			// Fx (top)
-			drawForceGraph(screen, g.fxHistory, graphX, baseY-step*2, graphW, graphH)
+			drawForceGraph(screen, g.fxHistory, graphX, baseY-step*2, graphW, graphH, color.RGBA{255, 100, 100, 255}, "Fx")
 			// Fy (middle)
-			drawForceGraph(screen, g.fyHistory, graphX, baseY-step, graphW, graphH)
+			drawForceGraph(screen, g.fyHistory, graphX, baseY-step, graphW, graphH, color.RGBA{100, 255, 100, 255}, "Fy")
 			// F (bottom)
-			drawForceGraph(screen, g.forceHistory, graphX, baseY, graphW, graphH)
+			drawForceGraph(screen, g.forceHistory, graphX, baseY, graphW, graphH, color.RGBA{100, 100, 255, 255}, "F")
 		} else {
 			// tylko F
-			drawForceGraph(screen, g.forceHistory, graphX, baseY, graphW, graphH)
+			drawForceGraph(screen, g.forceHistory, graphX, baseY, graphW, graphH, color.RGBA{100, 100, 255, 255}, "")
 		}
 	}
 
