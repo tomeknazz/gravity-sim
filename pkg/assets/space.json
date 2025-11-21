@@ -1,0 +1,9 @@
+{
+  "name": "space",
+  "dt": 0.1,
+  "bodies": [
+    { "mass": 30000, "pos": [0, 0], "vel": [0, 0], "color": "#ffff00", "radius": 20 },
+    { "mass": 2000, "pos": [200, 0], "vel": [0, 6], "color": "#00aaff", "radius": 10 },
+    { "mass": 2000, "pos": [-200, 0], "vel": [0, -8], "color": "#ff5500", "radius": 8 }
+  ]
+}

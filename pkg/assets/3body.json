@@ -1,0 +1,27 @@
+{
+  "name": "three_body_stable_faster",
+  "dt": 0.08,
+  "bodies": [
+    {
+      "mass": 1500.0,
+      "pos": [100, 0],
+      "vel": [0, 1.8],
+      "radius": 10,
+      "color": "#FF4500"
+    },
+    {
+      "mass": 1500.0,
+      "pos": [-50, 86.6],
+      "vel": [-1.56, -0.9],
+      "radius": 10,
+      "color": "#1E90FF"
+    },
+    {
+      "mass": 1500.0,
+      "pos": [-50, -86.6],
+      "vel": [1.56, -0.9],
+      "radius": 10,
+      "color": "#32CD32"
+    }
+  ]
+}

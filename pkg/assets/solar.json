@@ -1,0 +1,56 @@
+{
+  "name": "Solar System",
+  "dt": 0.1,
+  "auto_orbit": true,
+  "bodies": [
+    {
+      "mass": 1e6,
+      "pos": [0, 0],
+      "vel": [0, 0],
+      "color": "#ffff00",
+      "radius": 30
+    },
+    {
+      "mass": 10,
+      "pos": [100, 0],
+      "vel": [0, 0],
+      "color": "#ff0000",
+      "radius": 8
+    },
+    {
+      "mass": 10,
+      "pos": [200, 0],
+      "vel": [0, 0],
+      "color": "#1e90ff",
+      "radius": 8
+    },
+    {
+      "mass": 15,
+      "pos": [350, 0],
+      "vel": [0, 0],
+      "color": "#32cd32",
+      "radius": 10
+    },
+    {
+      "mass": 8,
+      "pos": [500, 0],
+      "vel": [0, 0],
+      "color": "#ff4500",
+      "radius": 12
+    },
+    {
+      "mass": 100,
+      "pos": [650, 0],
+      "vel": [0, 0],
+      "color": "#ff69b4",
+      "radius": 20
+    },
+    {
+      "mass": 10,
+      "pos": [-700, 600],
+      "vel": [22, -5],
+      "color": "#f069b4",
+      "radius": 7
+    }
+  ]
+}
