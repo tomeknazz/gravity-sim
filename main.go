@@ -886,7 +886,7 @@ func drawShortcuts(screen *ebiten.Image, g *Game) {
 
 	// Pozycja: przesun doliej (nie zaslania DebugPrint w lewym gorze)
 	op := &ebiten.DrawImageOptions{}
-	op.GeoM.Translate(float64(12), float64(64))
+	op.GeoM.Translate(float64(12), float64(100))
 	screen.DrawImage(panel, op)
 }
 
