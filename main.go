@@ -30,6 +30,10 @@ const (
 	uiBtnH   = 28
 	uiBtnPad = 12
 
+	// small controls
+	smallBtnW = 48
+	smallBtnH = 22
+
 	// wykres
 	graphW = 360
 	graphH = 120
@@ -66,6 +70,9 @@ type Game struct {
 	addAnti   bool    // czy nowe ciało będzie anty-grawitacyjne
 	addMass   float64 // domyślna masa nowego ciała
 	addRadius float64 // domyślny promień nowego ciała
+
+	// widoczność panelu skrótów
+	shortcutsVisible bool
 }
 
 // Update ---
@@ -76,6 +83,11 @@ func (g *Game) Update() error {
 	}
 	if inpututil.IsKeyJustPressed(ebiten.KeyN) && g.paused {
 		g.advanceOneStep()
+	}
+
+	// Toggle shortcuts visibility
+	if inpututil.IsKeyJustPressed(ebiten.KeyH) {
+		g.shortcutsVisible = !g.shortcutsVisible
 	}
 
 	// przełączniki w trybie Add (L - locked, V - anti)
@@ -93,7 +105,6 @@ func (g *Game) Update() error {
 			if g.sim.Bodies[g.selA].Locked {
 				g.sim.Bodies[g.selA].ColorC = color.RGBA{200, 200, 200, 255}
 			} else {
-				// przywróć domyśnyn kolor
 				g.sim.Bodies[g.selA].ColorC = color.RGBA{200, 200, 255, 255}
 			}
 		}
@@ -103,6 +114,21 @@ func (g *Game) Update() error {
 				g.sim.Bodies[g.selA].ColorC = color.RGBA{255, 120, 120, 255}
 			} else {
 				g.sim.Bodies[g.selA].ColorC = color.RGBA{200, 200, 255, 255}
+			}
+		}
+		// klawisze do zmiany masy/promienia dla selA
+		if g.selA != -1 {
+			if inpututil.IsKeyJustPressed(ebiten.KeyEqual) || inpututil.IsKeyJustPressed(ebiten.KeyK) { // = or K increase mass
+				g.sim.Bodies[g.selA].Mass *= 1.1
+			}
+			if inpututil.IsKeyJustPressed(ebiten.KeyMinus) || inpututil.IsKeyJustPressed(ebiten.KeyJ) { // - or J decrease mass
+				g.sim.Bodies[g.selA].Mass *= 0.9
+			}
+			if inpututil.IsKeyJustPressed(ebiten.KeyR) { // R increase radius
+				g.sim.Bodies[g.selA].Radius *= 1.1
+			}
+			if inpututil.IsKeyJustPressed(ebiten.KeyT) { // T decrease radius
+				g.sim.Bodies[g.selA].Radius *= 0.9
 			}
 		}
 	}
@@ -121,8 +147,35 @@ func (g *Game) Update() error {
 		compY := uiBtnPad
 		addX := compX - uiBtnPad - uiBtnW
 		addY := uiBtnPad
+		// small buttons to the left of Add
+		massPlusX := addX - uiBtnPad - smallBtnW
+		massPlusY := addY + (uiBtnH-smallBtnH)/2
+		massMinusX := massPlusX - uiBtnPad - smallBtnW
+		massMinusY := massPlusY
+		radPlusX := massMinusX - uiBtnPad - smallBtnW
+		radPlusY := massPlusY
+		radMinusX := radPlusX - uiBtnPad - smallBtnW
+		radMinusY := massPlusY
 
-		// obsłuż UI
+		// obsłuż small buttons (założenie: działają tylko gdy jest zaznaczone selA)
+		if pointInRect(mx, my, massPlusX, massPlusY, smallBtnW, smallBtnH) && g.selA != -1 {
+			g.sim.Bodies[g.selA].Mass *= 1.1
+			return nil
+		}
+		if pointInRect(mx, my, massMinusX, massMinusY, smallBtnW, smallBtnH) && g.selA != -1 {
+			g.sim.Bodies[g.selA].Mass *= 0.9
+			return nil
+		}
+		if pointInRect(mx, my, radPlusX, radPlusY, smallBtnW, smallBtnH) && g.selA != -1 {
+			g.sim.Bodies[g.selA].Radius *= 1.1
+			return nil
+		}
+		if pointInRect(mx, my, radMinusX, radMinusY, smallBtnW, smallBtnH) && g.selA != -1 {
+			g.sim.Bodies[g.selA].Radius *= 0.9
+			return nil
+		}
+
+		// obsłuż UI (Add/Comp/Quit/Step/Pause)
 		if pointInRect(mx, my, addX, addY, uiBtnW, uiBtnH) {
 			g.addMode = !g.addMode
 			// ustaw domyślne parametry gdy włączamy addMode
@@ -510,10 +563,34 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		if i == g.selA || i == g.selB {
 			drawCircle(screen, x, y, b.Radius+3, color.RGBA{255, 255, 255, 180})
 		}
+		// ikony Locked / Anti - małe symbole obok ciała
+		iconX := x + b.Radius + 6
+		iconY := y - b.Radius - 6
+		if b.Locked {
+			// rysuj prostą kłódkę: mały prostokąt z uchwytem
+			lockW, lockH := 12.0, 8.0
+			// prostokąt
+			for yy := 0; yy < int(lockH); yy++ {
+				for xx := 0; xx < int(lockW); xx++ {
+					screen.Set(int(iconX)+xx, int(iconY)+yy, color.RGBA{180, 180, 180, 220})
+				}
+			}
+			// uchwyt (linia)
+			drawLine(screen, iconX+2, iconY-4, iconX+lockW-2, iconY-4, color.RGBA{180, 180, 180, 220})
+		}
+		if b.Anti {
+			// rysuj kółko z minusem
+			r := 6.0
+			// circle outline
+			drawLine(screen, iconX+20, iconY, iconX+20+r, iconY, color.RGBA{220, 120, 120, 220})
+			// minus
+			drawLine(screen, iconX+20-3, iconY, iconX+20+3, iconY, color.RGBA{220, 120, 120, 220})
+		}
 	}
 
 	// UI
 	ebitenutil.DebugPrint(screen, fmt.Sprintf("Env: %s\nPaused: %v", g.sim.Name, g.paused))
+	drawShortcuts(screen, g)
 	// rysowanie przycisków w prawym górnym rogu (dopisz Add)
 	pauseX := screenWidth - uiBtnPad - uiBtnW
 	pauseY := uiBtnPad
@@ -525,6 +602,15 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	compY := uiBtnPad
 	addX := compX - uiBtnPad - uiBtnW
 	addY := uiBtnPad
+	massPlusX := addX - uiBtnPad - smallBtnW
+	massPlusY := addY + (uiBtnH-smallBtnH)/2
+	massMinusX := massPlusX - uiBtnPad - smallBtnW
+	massMinusY := massPlusY
+	radPlusX := massMinusX - uiBtnPad - smallBtnW
+	radPlusY := massPlusY
+	radMinusX := radPlusX - uiBtnPad - smallBtnW
+	radMinusY := massPlusY
+
 	// wykryj, czy kursor jest nad którymś przyciskiem
 	mx, my := ebiten.CursorPosition()
 	hoverAdd := pointInRect(mx, my, addX, addY, uiBtnW, uiBtnH)
@@ -542,6 +628,12 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		pauseLabel = "Resume"
 	}
 	drawButton(screen, pauseX, pauseY, uiBtnW, uiBtnH, pauseLabel, g.paused, false, hoverPause)
+
+	// rysuj small buttons (działają tylko dla zaznaczonego selA)
+	drawButton(screen, massPlusX, massPlusY, smallBtnW, smallBtnH, "M+", false, g.selA == -1, pointInRect(mx, my, massPlusX, massPlusY, smallBtnW, smallBtnH))
+	drawButton(screen, massMinusX, massMinusY, smallBtnW, smallBtnH, "M-", false, g.selA == -1, pointInRect(mx, my, massMinusX, massMinusY, smallBtnW, smallBtnH))
+	drawButton(screen, radPlusX, radPlusY, smallBtnW, smallBtnH, "R+", false, g.selA == -1, pointInRect(mx, my, radPlusX, radPlusY, smallBtnW, smallBtnH))
+	drawButton(screen, radMinusX, radMinusY, smallBtnW, smallBtnH, "R-", false, g.selA == -1, pointInRect(mx, my, radMinusX, radMinusY, smallBtnW, smallBtnH))
 
 	// jeśli w trybie Add - pokaż podgląd pozycji i ustawienia
 	if g.addMode {
@@ -666,6 +758,77 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	}
 }
 
+func drawShortcuts(screen *ebiten.Image, g *Game) {
+	if !g.shortcutsVisible {
+		return
+	}
+	// Zbierz linie kontekstowe (tylko klawisze, bez etykiet przyciskow)
+	lines := []string{}
+	if g.addMode {
+		lines = append(lines, "ADD MODE")
+		lines = append(lines, "L - toggle Locked (new body)")
+		lines = append(lines, "V - toggle Anti (new body)")
+		lines = append(lines, "Click - place new body")
+		lines = append(lines, "K / =  - mass +")
+		lines = append(lines, "J / -  - mass -")
+		lines = append(lines, "R - radius +")
+		lines = append(lines, "T - radius -")
+		lines = append(lines, "H - hide shortcuts")
+	} else {
+		lines = append(lines, "GLOBAL")
+		lines = append(lines, "P - Pause/Resume")
+		lines = append(lines, "N - Step (when paused)")
+		lines = append(lines, "L - toggle Locked (selected)")
+		lines = append(lines, "V - toggle Anti (selected)")
+		lines = append(lines, "K / =  - mass + (selected)")
+		lines = append(lines, "J / -  - mass - (selected)")
+		lines = append(lines, "R - radius + (selected)")
+		lines = append(lines, "T - radius - (selected)")
+		lines = append(lines, "H - hide shortcuts")
+	}
+
+	// Styl panelu
+	pad := 6
+	charW := 7
+	lineH := 14
+	maxLen := 0
+	for _, l := range lines {
+		if len(l) > maxLen {
+			maxLen = len(l)
+		}
+	}
+	w := maxLen*charW + pad*2
+	h := len(lines)*lineH + pad*2
+	// ogranicz rozmiar jeśli za duzy
+	if w > 600 {
+		w = 600
+	}
+	if h > 400 {
+		h = 400
+	}
+
+	// stworz obraz panelu
+	panel := ebiten.NewImage(w, h)
+	panel.Fill(color.RGBA{10, 10, 20, 200})
+	inner := ebiten.NewImage(w-2, h-2)
+	inner.Fill(color.RGBA{30, 30, 40, 80})
+	opInner := &ebiten.DrawImageOptions{}
+	opInner.GeoM.Translate(1, 1)
+	panel.DrawImage(inner, opInner)
+
+	// narysuj tekst
+	for i, l := range lines {
+		x := pad
+		y := pad + (i+1)*lineH - 2
+		text.Draw(panel, l, basicfont.Face7x13, x, y, color.RGBA{220, 220, 220, 255})
+	}
+
+	// Pozycja: przesun doliej (nie zaslania DebugPrint w lewym gorze)
+	op := &ebiten.DrawImageOptions{}
+	op.GeoM.Translate(float64(12), float64(64))
+	screen.DrawImage(panel, op)
+}
+
 func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
 	return screenWidth, screenHeight
 }
@@ -689,12 +852,13 @@ func main() {
 		}
 	}
 	game := &Game{
-		sim:             sim,
-		trails:          trails,
-		lastPos:         lastPos,
-		selA:            -1,
-		selB:            -1,
-		forceHistoryMax: 600,
+		sim:              sim,
+		trails:           trails,
+		lastPos:          lastPos,
+		selA:             -1,
+		selB:             -1,
+		forceHistoryMax:  600,
+		shortcutsVisible: true,
 	}
 	ebiten.SetWindowSize(screenWidth, screenHeight)
 	ebiten.SetWindowTitle("Gravity Simulation - " + sim.Name)
