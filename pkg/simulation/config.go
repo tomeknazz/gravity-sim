@@ -71,8 +71,10 @@ func LoadConfig(path string) (*Simulator, error) {
 func parseColor(hex string) color.RGBA {
 	var r, g, b uint8
 	if len(hex) == 7 && hex[0] == '#' {
-		fmt.Sscanf(hex, "#%02x%02x%02x", &r, &g, &b)
-		return color.RGBA{r, g, b, 255}
+		n, err := fmt.Sscanf(hex, "#%02x%02x%02x", &r, &g, &b)
+		if err == nil && n == 3 {
+			return color.RGBA{r, g, b, 255}
+		}
 	}
 	return color.RGBA{200, 200, 255, 255}
 }
