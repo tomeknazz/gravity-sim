@@ -59,6 +59,13 @@ type Game struct {
 	// historie komponentów siły
 	fxHistory []float64
 	fyHistory []float64
+
+	// Add mode: narzędzie dodawania nowych ciał
+	addMode   bool    // czy jesteśmy w trybie dodawania
+	addLocked bool    // czy nowe ciało będzie zablokowane
+	addAnti   bool    // czy nowe ciało będzie anty-grawitacyjne
+	addMass   float64 // domyślna masa nowego ciała
+	addRadius float64 // domyślny promień nowego ciała
 }
 
 // Update ---
@@ -71,10 +78,39 @@ func (g *Game) Update() error {
 		g.advanceOneStep()
 	}
 
+	// przełączniki w trybie Add (L - locked, V - anti)
+	if g.addMode {
+		if inpututil.IsKeyJustPressed(ebiten.KeyL) {
+			g.addLocked = !g.addLocked
+		}
+		if inpututil.IsKeyJustPressed(ebiten.KeyV) {
+			g.addAnti = !g.addAnti
+		}
+	} else {
+		// gdy nie w trybie add: pozwól na togglowanie Locked/Anti dla wybranego ciała (selA)
+		if inpututil.IsKeyJustPressed(ebiten.KeyL) && g.selA != -1 {
+			g.sim.Bodies[g.selA].Locked = !g.sim.Bodies[g.selA].Locked
+			if g.sim.Bodies[g.selA].Locked {
+				g.sim.Bodies[g.selA].ColorC = color.RGBA{200, 200, 200, 255}
+			} else {
+				// przywróć domyśnyn kolor
+				g.sim.Bodies[g.selA].ColorC = color.RGBA{200, 200, 255, 255}
+			}
+		}
+		if inpututil.IsKeyJustPressed(ebiten.KeyV) && g.selA != -1 {
+			g.sim.Bodies[g.selA].Anti = !g.sim.Bodies[g.selA].Anti
+			if g.sim.Bodies[g.selA].Anti {
+				g.sim.Bodies[g.selA].ColorC = color.RGBA{255, 120, 120, 255}
+			} else {
+				g.sim.Bodies[g.selA].ColorC = color.RGBA{200, 200, 255, 255}
+			}
+		}
+	}
+
 	// UI kliknięcia
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		mx, my := ebiten.CursorPosition()
-		// przyciski od prawej: Pause, Step, Quit, Comp (od lewej do prawej: Comp Quit Step Pause)
+		// przyciski od prawej: Pause, Step, Quit, Comp, Add
 		pauseX := screenWidth - uiBtnPad - uiBtnW
 		pauseY := uiBtnPad
 		stepX := pauseX - uiBtnPad - uiBtnW
@@ -83,8 +119,21 @@ func (g *Game) Update() error {
 		quitY := uiBtnPad
 		compX := quitX - uiBtnPad - uiBtnW
 		compY := uiBtnPad
+		addX := compX - uiBtnPad - uiBtnW
+		addY := uiBtnPad
 
 		// obsłuż UI
+		if pointInRect(mx, my, addX, addY, uiBtnW, uiBtnH) {
+			g.addMode = !g.addMode
+			// ustaw domyślne parametry gdy włączamy addMode
+			if g.addMode {
+				g.addMass = 100.0
+				g.addRadius = 8.0
+				g.addLocked = false
+				g.addAnti = false
+			}
+			return nil
+		}
 		if pointInRect(mx, my, compX, compY, uiBtnW, uiBtnH) {
 			if g.selA != -1 && g.selB != -1 {
 				g.showComponents = !g.showComponents
@@ -106,7 +155,39 @@ func (g *Game) Update() error {
 			return nil
 		}
 
-		// kliknięcie poza UI: wybieranie ciała
+		// kliknięcie poza UI
+		// jeśli jesteśmy w trybie add -> dodaj ciało w miejscu kursora
+		if g.addMode {
+			// upewnij się, że nie klikamy w obszar UI
+			if !(pointInRect(mx, my, addX, addY, uiBtnW, uiBtnH) || pointInRect(mx, my, compX, compY, uiBtnW, uiBtnH) || pointInRect(mx, my, quitX, quitY, uiBtnW, uiBtnH) || pointInRect(mx, my, stepX, stepY, uiBtnW, uiBtnH) || pointInRect(mx, my, pauseX, pauseY, uiBtnW, uiBtnH)) {
+				pos := physics.Vec2{X: float64(mx) - float64(screenWidth)/2, Y: float64(my) - float64(screenHeight)/2}
+				// przygotuj ciało
+				nb := physics.Body{
+					Mass:   g.addMass,
+					Pos:    pos,
+					Vel:    physics.Vec2{0, 0},
+					Acc:    physics.Vec2{0, 0},
+					Radius: g.addRadius,
+					ColorC: color.RGBA{200, 200, 255, 255},
+					Locked: g.addLocked,
+					Anti:   g.addAnti,
+				}
+				// kolor zależnie od flag
+				if nb.Anti {
+					nb.ColorC = color.RGBA{255, 120, 120, 255}
+				} else if nb.Locked {
+					nb.ColorC = color.RGBA{200, 200, 200, 255}
+				}
+				// dodaj do symulacji i pomocniczych tablic
+				g.sim.Bodies = append(g.sim.Bodies, nb)
+				g.lastPos = append(g.lastPos, nb.Pos)
+				g.trails = append(g.trails, []TrailSegment{})
+				// po dodaniu pozostajemy w trybie add (aby dodać kolejne) — chyba że chcesz inaczej
+			}
+			return nil
+		}
+
+		// normalne kliknięcie wyboru ciała (istniejąca logika)
 		mouse := physics.Vec2{X: float64(mx) - float64(screenWidth)/2, Y: float64(my) - float64(screenHeight)/2}
 		clicked := -1
 		minD := 1e18
@@ -433,6 +514,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 
 	// UI
 	ebitenutil.DebugPrint(screen, fmt.Sprintf("Env: %s\nPaused: %v", g.sim.Name, g.paused))
+	// rysowanie przycisków w prawym górnym rogu (dopisz Add)
 	pauseX := screenWidth - uiBtnPad - uiBtnW
 	pauseY := uiBtnPad
 	stepX := pauseX - uiBtnPad - uiBtnW
@@ -441,12 +523,17 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	quitY := uiBtnPad
 	compX := quitX - uiBtnPad - uiBtnW
 	compY := uiBtnPad
+	addX := compX - uiBtnPad - uiBtnW
+	addY := uiBtnPad
+	// wykryj, czy kursor jest nad którymś przyciskiem
 	mx, my := ebiten.CursorPosition()
+	hoverAdd := pointInRect(mx, my, addX, addY, uiBtnW, uiBtnH)
 	hoverComp := pointInRect(mx, my, compX, compY, uiBtnW, uiBtnH)
 	hoverQuit := pointInRect(mx, my, quitX, quitY, uiBtnW, uiBtnH)
 	hoverStep := pointInRect(mx, my, stepX, stepY, uiBtnW, uiBtnH)
 	hoverPause := pointInRect(mx, my, pauseX, pauseY, uiBtnW, uiBtnH)
 	compDisabled := !(g.selA != -1 && g.selB != -1)
+	drawButton(screen, addX, addY, uiBtnW, uiBtnH, "Add", g.addMode, false, hoverAdd)
 	drawButton(screen, compX, compY, uiBtnW, uiBtnH, "Comp", g.showComponents, compDisabled, hoverComp)
 	drawButton(screen, quitX, quitY, uiBtnW, uiBtnH, "Quit", false, false, hoverQuit)
 	drawButton(screen, stepX, stepY, uiBtnW, uiBtnH, "Step", false, !g.paused, hoverStep)
@@ -455,6 +542,30 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		pauseLabel = "Resume"
 	}
 	drawButton(screen, pauseX, pauseY, uiBtnW, uiBtnH, pauseLabel, g.paused, false, hoverPause)
+
+	// jeśli w trybie Add - pokaż podgląd pozycji i ustawienia
+	if g.addMode {
+		// kursorem nad ekranem
+		mx, my := ebiten.CursorPosition()
+		px := float64(mx)
+		py := float64(my)
+		col := color.RGBA{200, 200, 255, 160}
+		if g.addAnti {
+			col = color.RGBA{255, 120, 120, 180}
+		} else if g.addLocked {
+			col = color.RGBA{200, 200, 200, 200}
+		}
+		// rysuj podgląd koła
+		preview := ebiten.NewImage(int(g.addRadius*2), int(g.addRadius*2))
+		preview.Fill(col)
+		op := &ebiten.DrawImageOptions{}
+		op.GeoM.Translate(px-g.addRadius, py-g.addRadius)
+		screen.DrawImage(preview, op)
+		// instrukcje
+		text.Draw(screen, "Add mode: L toggle Locked, V toggle Anti", basicfont.Face7x13, 12, 60, color.RGBA{220, 220, 220, 200})
+		settings := fmt.Sprintf("Mass: %.1f  Radius: %.1f  Locked: %v  Anti: %v", g.addMass, g.addRadius, g.addLocked, g.addAnti)
+		text.Draw(screen, settings, basicfont.Face7x13, 12, 80, color.RGBA{200, 200, 200, 200})
+	}
 
 	// arrow + force + graph
 	if g.selA != -1 && g.selB != -1 {

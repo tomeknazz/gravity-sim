@@ -7,6 +7,12 @@ func IntegrateEulerSymplectic(bodies []Body, dt float64) []Body {
 		// Oblicz przyspieszenie na podstawie aktualnych pozycji wszystkich ciał
 		bodies[i].Acc = ComputeAcceleration(bodies[i], bodies)
 
+		if bodies[i].Locked {
+			// nie aktualizujemy prędkości i pozycji zablokowanego ciała
+			bodies[i].Vel = Vec2{0, 0}
+			continue
+		}
+
 		// Semi-implicit Euler: najpierw aktualizujemy prędkość
 		bodies[i].Vel = bodies[i].Vel.Add(bodies[i].Acc.Mul(dt))
 

@@ -42,9 +42,20 @@ type Body struct {
 	Acc    Vec2
 	Radius float64
 	ColorC color.RGBA
+
+	// jeśli Locked == true, ciało jest unieruchomione i nie porusza się
+	Locked bool
+	// jeśli Anti == true, ciało generuje anty-grawitację (odpycha zamiast przyciągać)
+	Anti bool
 }
 
 func (b *Body) Update(dt float64, bodies []Body) {
+	if b.Locked {
+		// nie poruszamy zablokowanego ciała
+		b.Acc = ComputeAcceleration(*b, bodies)
+		b.Vel = Vec2{0, 0}
+		return
+	}
 	b.Acc = ComputeAcceleration(*b, bodies)
 	b.Vel = b.Vel.Add(b.Acc.Mul(dt))
 	b.Pos = b.Pos.Add(b.Vel.Mul(dt))
