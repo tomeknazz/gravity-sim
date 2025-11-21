@@ -55,6 +55,10 @@ type Game struct {
 	showComponents  bool
 	forceHistory    []float64
 	forceHistoryMax int
+
+	// historie komponentów siły
+	fxHistory []float64
+	fyHistory []float64
 }
 
 // Update ---
@@ -137,6 +141,8 @@ func (g *Game) Update() error {
 			}
 			if g.selA != prevA || g.selB != prevB {
 				g.forceHistory = nil
+				g.fxHistory = nil
+				g.fyHistory = nil
 			}
 		}
 	}
@@ -161,13 +167,27 @@ func (g *Game) advanceOneStep() {
 		d := math.Hypot(dx, dy)
 		eps := 1e-6
 		F := physics.G * b1.Mass * b2.Mass / (d*d + eps)
+		// komponenty
+		ux := dx / (d + 1e-12)
+		uy := dy / (d + 1e-12)
+		Fx := F * ux
+		Fy := F * uy
 		g.forceHistory = append(g.forceHistory, F)
+		g.fxHistory = append(g.fxHistory, Fx)
+		g.fyHistory = append(g.fyHistory, Fy)
 		if g.forceHistoryMax == 0 {
 			g.forceHistoryMax = 600
 		}
 		if len(g.forceHistory) > g.forceHistoryMax {
 			start := len(g.forceHistory) - g.forceHistoryMax
 			g.forceHistory = g.forceHistory[start:]
+		}
+		// trim fx/fy to same length
+		if len(g.fxHistory) > g.forceHistoryMax {
+			g.fxHistory = g.fxHistory[len(g.fxHistory)-g.forceHistoryMax:]
+		}
+		if len(g.fyHistory) > g.forceHistoryMax {
+			g.fyHistory = g.fyHistory[len(g.fyHistory)-g.forceHistoryMax:]
 		}
 	}
 
@@ -405,27 +425,35 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		y1 := float64(screenHeight)/2 + b1.Pos.Y
 		x2 := float64(screenWidth)/2 + b2.Pos.X
 		y2 := float64(screenHeight)/2 + b2.Pos.Y
-		drawArrowWithHead(screen, x1, y1, x2, y2, color.RGBA{255, 200, 0, 220})
+		// narysuj strzałkę od 1 do 2
+		arrowColor := color.RGBA{255, 200, 0, 220}
+		drawArrowWithHead(screen, x1, y1, x2, y2, arrowColor)
+		// oblicz wartość siły i narysuj tekst w połowie
 		dx := b2.Pos.X - b1.Pos.X
 		dy := b2.Pos.Y - b1.Pos.Y
-		d := math.Hypot(dx, dy)
-		F := physics.G * b1.Mass * b2.Mass / (d*d + 1e-6)
+		dist := math.Hypot(dx, dy)
+		eps := 1e-6
+		force := physics.G * b1.Mass * b2.Mass / (dist*dist + eps)
 		midX := (x1 + x2) / 2
 		midY := (y1 + y2) / 2
-		label := fmt.Sprintf("F = %.3e", F)
+		label := fmt.Sprintf("F = %.3e", force)
 		text.Draw(screen, label, basicfont.Face7x13, int(midX)-len(label)*4, int(midY)-6, color.RGBA{255, 255, 200, 255})
-		if g.showComponents {
-			uX := dx / (d + 1e-12)
-			uY := dy / (d + 1e-12)
-			Fx := F * uX
-			Fy := F * uY
-			text.Draw(screen, fmt.Sprintf("Fx=%.3e", Fx), basicfont.Face7x13, int(midX)-30, int(midY)+8, color.RGBA{200, 255, 200, 255})
-			text.Draw(screen, fmt.Sprintf("Fy=%.3e", Fy), basicfont.Face7x13, int(midX)-30, int(midY)+20, color.RGBA{200, 255, 200, 255})
-		}
-		// graph bottom-right
+
+		// jeśli komponenty włączone - wyświetl Fx/Fy i osobne wykresy
 		graphX := screenWidth - graphW - 16
-		graphY := screenHeight - graphH - 16
-		drawForceGraph(screen, g.forceHistory, graphX, graphY, graphW, graphH)
+		baseY := screenHeight - graphH - 16
+		step := graphH + 8
+		if g.showComponents {
+			// Fx (top)
+			drawForceGraph(screen, g.fxHistory, graphX, baseY-step*2, graphW, graphH)
+			// Fy (middle)
+			drawForceGraph(screen, g.fyHistory, graphX, baseY-step, graphW, graphH)
+			// F (bottom)
+			drawForceGraph(screen, g.forceHistory, graphX, baseY, graphW, graphH)
+		} else {
+			// tylko F
+			drawForceGraph(screen, g.forceHistory, graphX, baseY, graphW, graphH)
+		}
 	}
 
 	// tooltip podczas pauzy
