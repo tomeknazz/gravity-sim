@@ -73,6 +73,12 @@ type Game struct {
 
 	// widoczność panelu skrótów
 	shortcutsVisible bool
+
+	// ścieżka do oryginalnego pliku konfiguracyjnego (do resetu)
+	initialConfigPath string
+
+	// czy modal potwierdzenia resetu jest otwarty
+	resetModalOpen bool
 }
 
 // Update ---
@@ -136,7 +142,7 @@ func (g *Game) Update() error {
 	// UI kliknięcia
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		mx, my := ebiten.CursorPosition()
-		// przyciski od prawej: Pause, Step, Quit, Comp, Add
+		// pozycyjne obiczenia przyciskow (Pause, Step, Quit, Comp, Reset, Add)
 		pauseX := screenWidth - uiBtnPad - uiBtnW
 		pauseY := uiBtnPad
 		stepX := pauseX - uiBtnPad - uiBtnW
@@ -145,8 +151,10 @@ func (g *Game) Update() error {
 		quitY := uiBtnPad
 		compX := quitX - uiBtnPad - uiBtnW
 		compY := uiBtnPad
-		addX := compX - uiBtnPad - uiBtnW
+		resetX := compX - uiBtnPad - uiBtnW
+		addX := resetX - uiBtnPad - uiBtnW
 		addY := uiBtnPad
+
 		// small buttons to the left of Add
 		massPlusX := addX - uiBtnPad - smallBtnW
 		massPlusY := addY + (uiBtnH-smallBtnH)/2
@@ -156,6 +164,33 @@ func (g *Game) Update() error {
 		radPlusY := massPlusY
 		radMinusX := radPlusX - uiBtnPad - smallBtnW
 		radMinusY := massPlusY
+
+		// Jeśli modal potwierdzenia jest otwarty: obsłuż tylko modal
+		if g.resetModalOpen {
+			mw := 360
+			mh := 120
+			mx0 := (screenWidth - mw) / 2
+			my0 := (screenHeight - mh) / 2
+			yesX := mx0 + 40
+			yesY := my0 + mh - 44
+			noX := mx0 + mw - 40 - uiBtnW
+			noY := yesY
+			if pointInRect(mx, my, yesX, yesY, uiBtnW, uiBtnH) {
+				// potwierdz reset
+				if err := g.resetSimulation(); err != nil {
+					log.Printf("Reset failed: %v", err)
+				}
+				return nil
+			}
+			if pointInRect(mx, my, noX, noY, uiBtnW, uiBtnH) {
+				// anuluj modal
+				g.resetModalOpen = false
+				return nil
+			}
+			// klik poza modal zamyka modal
+			g.resetModalOpen = false
+			return nil
+		}
 
 		// obsłuż small buttons (założenie: działają tylko gdy jest zaznaczone selA)
 		if pointInRect(mx, my, massPlusX, massPlusY, smallBtnW, smallBtnH) && g.selA != -1 {
@@ -175,10 +210,9 @@ func (g *Game) Update() error {
 			return nil
 		}
 
-		// obsłuż UI (Add/Comp/Quit/Step/Pause)
+		// obsłuż UI (Add/Comp/Quit/Step/Pause/Reset)
 		if pointInRect(mx, my, addX, addY, uiBtnW, uiBtnH) {
 			g.addMode = !g.addMode
-			// ustaw domyślne parametry gdy włączamy addMode
 			if g.addMode {
 				g.addMass = 100.0
 				g.addRadius = 8.0
@@ -191,6 +225,11 @@ func (g *Game) Update() error {
 			if g.selA != -1 && g.selB != -1 {
 				g.showComponents = !g.showComponents
 			}
+			return nil
+		}
+		if pointInRect(mx, my, resetX, addY, uiBtnW, uiBtnH) {
+			// otworz modal potwierdzenia resetu
+			g.resetModalOpen = true
 			return nil
 		}
 		if pointInRect(mx, my, quitX, quitY, uiBtnW, uiBtnH) {
@@ -278,6 +317,20 @@ func (g *Game) Update() error {
 				g.fxHistory = nil
 				g.fyHistory = nil
 			}
+		}
+	}
+
+	// klawiszowa obsluga modalu
+	if g.resetModalOpen {
+		if inpututil.IsKeyJustPressed(ebiten.KeyY) || inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
+			if err := g.resetSimulation(); err != nil {
+				log.Printf("Reset failed: %v", err)
+			}
+			return nil
+		}
+		if inpututil.IsKeyJustPressed(ebiten.KeyN) || inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+			g.resetModalOpen = false
+			return nil
 		}
 	}
 
@@ -600,7 +653,8 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	quitY := uiBtnPad
 	compX := quitX - uiBtnPad - uiBtnW
 	compY := uiBtnPad
-	addX := compX - uiBtnPad - uiBtnW
+	resetX := compX - uiBtnPad - uiBtnW
+	addX := resetX - uiBtnPad - uiBtnW
 	addY := uiBtnPad
 	massPlusX := addX - uiBtnPad - smallBtnW
 	massPlusY := addY + (uiBtnH-smallBtnH)/2
@@ -618,6 +672,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	hoverQuit := pointInRect(mx, my, quitX, quitY, uiBtnW, uiBtnH)
 	hoverStep := pointInRect(mx, my, stepX, stepY, uiBtnW, uiBtnH)
 	hoverPause := pointInRect(mx, my, pauseX, pauseY, uiBtnW, uiBtnH)
+	hoverReset := pointInRect(mx, my, resetX, addY, uiBtnW, uiBtnH)
 	compDisabled := !(g.selA != -1 && g.selB != -1)
 	drawButton(screen, addX, addY, uiBtnW, uiBtnH, "Add", g.addMode, false, hoverAdd)
 	drawButton(screen, compX, compY, uiBtnW, uiBtnH, "Comp", g.showComponents, compDisabled, hoverComp)
@@ -628,6 +683,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		pauseLabel = "Resume"
 	}
 	drawButton(screen, pauseX, pauseY, uiBtnW, uiBtnH, pauseLabel, g.paused, false, hoverPause)
+	drawButton(screen, resetX, addY, uiBtnW, uiBtnH, "Reset", false, false, hoverReset)
 
 	// rysuj small buttons (działają tylko dla zaznaczonego selA)
 	drawButton(screen, massPlusX, massPlusY, smallBtnW, smallBtnH, "M+", false, g.selA == -1, pointInRect(mx, my, massPlusX, massPlusY, smallBtnW, smallBtnH))
@@ -756,6 +812,11 @@ func (g *Game) Draw(screen *ebiten.Image) {
 			screen.DrawImage(tooltip, op)
 		}
 	}
+
+	// rysuj modal potwierdzenia resetu, jeśli otwarty
+	if g.resetModalOpen {
+		drawResetModal(screen)
+	}
 }
 
 func drawShortcuts(screen *ebiten.Image, g *Game) {
@@ -833,6 +894,40 @@ func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
 	return screenWidth, screenHeight
 }
 
+// resetSimulation przeładowuje konfigurację z initialConfigPath i resetuje stan gry
+func (g *Game) resetSimulation() error {
+	if g.initialConfigPath == "" {
+		return fmt.Errorf("no initial config path set")
+	}
+	sim, err := simulation.LoadConfig(g.initialConfigPath)
+	if err != nil {
+		return err
+	}
+	// apply loaded simulator
+	g.sim = sim
+	// reinit helper arrays
+	g.lastPos = make([]physics.Vec2, len(g.sim.Bodies))
+	g.trails = make([][]TrailSegment, len(g.sim.Bodies))
+	for i := range g.sim.Bodies {
+		g.lastPos[i] = g.sim.Bodies[i].Pos
+		g.trails[i] = []TrailSegment{}
+		if g.sim.Bodies[i].ColorC == (color.RGBA{}) {
+			g.sim.Bodies[i].ColorC = color.RGBA{200, 200, 255, 255}
+		}
+	}
+	// clear selections and histories
+	g.selA = -1
+	g.selB = -1
+	g.forceHistory = nil
+	g.fxHistory = nil
+	g.fyHistory = nil
+	// close modal and reset modes
+	g.addMode = false
+	g.resetModalOpen = false
+	g.paused = false
+	return nil
+}
+
 func main() {
 	envName := flag.String("env", "solar", "Wybór środowiska (np. solar, binary, chaos)")
 	flag.Parse()
@@ -852,17 +947,46 @@ func main() {
 		}
 	}
 	game := &Game{
-		sim:              sim,
-		trails:           trails,
-		lastPos:          lastPos,
-		selA:             -1,
-		selB:             -1,
-		forceHistoryMax:  600,
-		shortcutsVisible: true,
+		sim:               sim,
+		trails:            trails,
+		lastPos:           lastPos,
+		selA:              -1,
+		selB:              -1,
+		forceHistoryMax:   600,
+		shortcutsVisible:  true,
+		initialConfigPath: configPath,
 	}
 	ebiten.SetWindowSize(screenWidth, screenHeight)
 	ebiten.SetWindowTitle("Gravity Simulation - " + sim.Name)
 	if err := ebiten.RunGame(game); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// drawResetModal rysuje modal potwierdzenia resetu (nowa, czysta wersja)
+func drawResetModal(screen *ebiten.Image) {
+	w := 360
+	h := 120
+	x := (screenWidth - w) / 2
+	y := (screenHeight - h) / 2
+	panel := ebiten.NewImage(w, h)
+	panel.Fill(color.RGBA{20, 20, 20, 220})
+	inner := ebiten.NewImage(w-4, h-4)
+	inner.Fill(color.RGBA{36, 36, 44, 200})
+	op := &ebiten.DrawImageOptions{}
+	op.GeoM.Translate(float64(x+2), float64(y+2))
+	panel.DrawImage(inner, op)
+
+	text.Draw(panel, "Reset simulation?", basicfont.Face7x13, 16, 28, color.RGBA{230, 230, 230, 255})
+	text.Draw(panel, "Reload initial config and remove added bodies.", basicfont.Face7x13, 16, 48, color.RGBA{190, 190, 190, 200})
+
+	yesX := 40
+	noX := w - 40 - uiBtnW
+	btnY := h - 44
+	drawButton(panel, yesX, btnY, uiBtnW, uiBtnH, "Yes", false, false, false)
+	drawButton(panel, noX, btnY, uiBtnW, uiBtnH, "No", false, false, false)
+
+	op2 := &ebiten.DrawImageOptions{}
+	op2.GeoM.Translate(float64(x), float64(y))
+	screen.DrawImage(panel, op2)
 }
