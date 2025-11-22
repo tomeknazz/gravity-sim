@@ -37,6 +37,8 @@ const (
 	// wykres
 	graphW = 360
 	graphH = 120
+
+	maxTrailSegments = 600 // maksymalna liczba segmentów śladu na ciało (ograniczenie wydajnościowe)
 )
 
 // TrailSegment ---
@@ -390,8 +392,13 @@ func (g *Game) advanceOneStep() {
 			Color: b.ColorC,
 		}
 		g.trails[i] = append(g.trails[i], seg)
+		// ogranicz długość śladu aby nie rysować zbyt wielu segmentów
+		if len(g.trails[i]) > maxTrailSegments {
+			start := len(g.trails[i]) - maxTrailSegments
+			g.trails[i] = g.trails[i][start:]
+		}
 		g.lastPos[i] = b.Pos
-		// trim
+		// trim by life
 		newTrail := g.trails[i][:0]
 		for j := range g.trails[i] {
 			g.trails[i][j].Life -= g.sim.Dt
@@ -403,119 +410,239 @@ func (g *Game) advanceOneStep() {
 	}
 }
 
-// Draw helpers ---
-func drawCircle(screen *ebiten.Image, cx, cy, r float64, clr color.RGBA) {
-	for y := -int(r); y <= int(r); y++ {
-		for x := -int(r); x <= int(r); x++ {
-			if x*x+y*y <= int(r*r) {
-				screen.Set(int(cx)+x, int(cy)+y, clr)
-			}
-		}
-	}
-}
+// helpers for Wu (missing definitions)
+func ipart(x float64) int      { return int(math.Floor(x)) }
+func roundf(x float64) int     { return int(math.Floor(x + 0.5)) }
+func fpart(x float64) float64  { return x - math.Floor(x) }
+func rfpart(x float64) float64 { return 1 - fpart(x) }
 
-func drawLine(img *ebiten.Image, x0, y0, x1, y1 float64, clr color.RGBA) {
-	dx := x1 - x0
-	dy := y1 - y0
-	steps := int(maxf(abs(dx), abs(dy)))
-	if steps == 0 {
-		img.Set(int(x0), int(y0), clr)
+// blend src color onto dst with alpha a in [0,1]
+func blendPixel(img *ebiten.Image, px, py int, src color.RGBA, a float64) {
+	if px < 0 || py < 0 || px >= screenWidth || py >= screenHeight {
 		return
 	}
-	xInc := dx / float64(steps)
-	yInc := dy / float64(steps)
-	x := x0
-	y := y0
-	for i := 0; i <= steps; i++ {
-		img.Set(int(x), int(y), clr)
-		x += xInc
-		y += yInc
+	c := img.At(px, py)
+	d := color.RGBAModel.Convert(c).(color.RGBA)
+	sa := float64(src.A) / 255.0 * a
+	da := float64(d.A) / 255.0
+	outA := sa + da*(1-sa)
+	if outA <= 0 {
+		img.Set(px, py, color.RGBA{0, 0, 0, 0})
+		return
 	}
+	sr := float64(src.R) / 255.0 * sa
+	sg := float64(src.G) / 255.0 * sa
+	sb := float64(src.B) / 255.0 * sa
+	dr := float64(d.R) / 255.0 * da
+	dg := float64(d.G) / 255.0 * da
+	db := float64(d.B) / 255.0 * da
+	or := (sr + dr*(1-sa)) / outA
+	og := (sg + dg*(1-sa)) / outA
+	ob := (sb + db*(1-sa)) / outA
+	out := color.RGBA{uint8(math.Round(or * 255)), uint8(math.Round(og * 255)), uint8(math.Round(ob * 255)), uint8(math.Round(outA * 255))}
+	img.Set(px, py, out)
 }
 
-func abs(a float64) float64 {
-	if a < 0 {
-		return -a
+// drawWuLine implements Xiaolin Wu anti-aliased line algorithm
+func drawWuLine(img *ebiten.Image, x0, y0, x1, y1 float64, clr color.RGBA) {
+	steep := math.Abs(y1-y0) > math.Abs(x1-x0)
+	if steep {
+		x0, y0 = y0, x0
+		x1, y1 = y1, x1
 	}
-	return a
-}
-func maxf(a, b float64) float64 {
-	if a > b {
-		return a
+	if x0 > x1 {
+		x0, x1 = x1, x0
+		y0, y1 = y1, y0
 	}
-	return b
-}
-
-func pointInRect(px, py, rx, ry, rw, rh int) bool {
-	return px >= rx && px <= rx+rw && py >= ry && py <= ry+rh
-}
-
-func drawButton(screen *ebiten.Image, x, y, w, h int, label string, active bool, disabled bool, hover bool) {
-	btn := ebiten.NewImage(w, h)
-	bg := color.RGBA{20, 20, 20, 200}
-	textColor := color.RGBA{240, 240, 240, 255}
-	if disabled {
-		bg = color.RGBA{60, 60, 60, 160}
-		textColor = color.RGBA{160, 160, 160, 200}
+	dx := x1 - x0
+	dy := y1 - y0
+	grad := 0.0
+	if dx == 0 {
+		grad = 1.0
 	} else {
-		if active {
-			bg = color.RGBA{60, 120, 60, 220}
+		grad = dy / dx
+	}
+
+	// handle first endpoint
+	xend := float64(ipart(x0))
+	yend := y0 + grad*(xend-x0)
+	xgap := rfpart(x0 + 0.5)
+	xpxl1 := int(xend)
+	ypxl1 := ipart(yend)
+	if steep {
+		blendPixel(img, ypxl1, xpxl1, clr, rfpart(yend)*xgap)
+		blendPixel(img, ypxl1+1, xpxl1, clr, fpart(yend)*xgap)
+	} else {
+		blendPixel(img, xpxl1, ypxl1, clr, rfpart(yend)*xgap)
+		blendPixel(img, xpxl1, ypxl1+1, clr, fpart(yend)*xgap)
+	}
+	intery := yend + grad
+
+	// handle second endpoint
+	xend = float64(ipart(x1))
+	yend = y1 + grad*(xend-x1)
+	xgap = fpart(x1 + 0.5)
+	xpxl2 := int(xend)
+	ypxl2 := ipart(yend)
+	if steep {
+		blendPixel(img, ypxl2, xpxl2, clr, rfpart(yend)*xgap)
+		blendPixel(img, ypxl2+1, xpxl2, clr, fpart(yend)*xgap)
+	} else {
+		blendPixel(img, xpxl2, ypxl2, clr, rfpart(yend)*xgap)
+		blendPixel(img, xpxl2, ypxl2+1, clr, fpart(yend)*xgap)
+	}
+
+	// main loop
+	if steep {
+		for x := xpxl1 + 1; x <= xpxl2-1; x++ {
+			y := intery
+			blendPixel(img, int(ipart(y)), x, clr, rfpart(y))
+			blendPixel(img, int(ipart(y))+1, x, clr, fpart(y))
+			intery += grad
 		}
-		if hover {
-			if active {
-				bg = color.RGBA{100, 190, 100, 240}
-			} else {
-				bg = color.RGBA{90, 90, 90, 230}
+	} else {
+		for x := xpxl1 + 1; x <= xpxl2-1; x++ {
+			y := intery
+			blendPixel(img, x, int(ipart(y)), clr, rfpart(y))
+			blendPixel(img, x, int(ipart(y))+1, clr, fpart(y))
+			intery += grad
+		}
+	}
+}
+
+// drawFilledTriangle rasterizes and fills triangle using barycentric coordinates
+func drawFilledTriangle(img *ebiten.Image, x0, y0, x1, y1, x2, y2 float64, clr color.RGBA) {
+	minx := int(math.Floor(math.Min(x0, math.Min(x1, x2))))
+	maxx := int(math.Ceil(math.Max(x0, math.Max(x1, x2))))
+	miny := int(math.Floor(math.Min(y0, math.Min(y1, y2))))
+	maxy := int(math.Ceil(math.Max(y0, math.Max(y1, y2))))
+	// clip to screen
+	if minx < 0 {
+		minx = 0
+	}
+	if miny < 0 {
+		miny = 0
+	}
+	if maxx >= screenWidth {
+		maxx = screenWidth - 1
+	}
+	if maxy >= screenHeight {
+		maxy = screenHeight - 1
+	}
+	// precompute
+	det := (y1-y2)*(x0-x2) + (x2-x1)*(y0-y2)
+	if det == 0 {
+		return
+	}
+	for y := miny; y <= maxy; y++ {
+		for x := minx; x <= maxx; x++ {
+			// barycentric
+			l1 := ((y1-y2)*(float64(x)-x2) + (x2-x1)*(float64(y)-y2)) / det
+			l2 := ((y2-y0)*(float64(x)-x2) + (x0-x2)*(float64(y)-y2)) / det
+			l3 := 1 - l1 - l2
+			if l1 >= 0 && l2 >= 0 && l3 >= 0 {
+				img.Set(x, y, clr)
 			}
 		}
 	}
-	btn.Fill(bg)
-	inner := ebiten.NewImage(w-2, h-2)
-	inner.Fill(color.RGBA{40, 40, 40, 120})
-	opInner := &ebiten.DrawImageOptions{}
-	opInner.GeoM.Translate(1, 1)
-	btn.DrawImage(inner, opInner)
-	charW := 7
-	cw := len(label) * charW
-	xText := (w - cw) / 2
-	yText := (h + 8) / 2
-	text.Draw(btn, label, basicfont.Face7x13, xText, yText, textColor)
-	op2 := &ebiten.DrawImageOptions{}
-	op2.GeoM.Translate(float64(x), float64(y))
-	screen.DrawImage(btn, op2)
 }
 
-func drawArrowWithHead(img *ebiten.Image, x0, y0, x1, y1 float64, clr color.RGBA) {
-	drawLine(img, x0, y0, x1, y1, clr)
+// drawSmoothSegment and drawSmoothArrow wrappers using Wu and triangle fill
+func drawSmoothSegment(screen *ebiten.Image, x0, y0, x1, y1 float64, clr color.RGBA) {
+	drawWuLine(screen, x0, y0, x1, y1, clr)
+}
+
+func drawSmoothArrow(screen *ebiten.Image, x0, y0, x1, y1 float64, clr color.RGBA) {
+	drawWuLine(screen, x0, y0, x1, y1, clr)
+	// draw filled triangular head
 	dx := x1 - x0
 	dy := y1 - y0
-	d := math.Sqrt(dx*dx + dy*dy)
+	d := math.Hypot(dx, dy)
 	if d == 0 {
 		return
 	}
 	ux := dx / d
-	uY := dy / d
+	uy := dy / d
 	sz := 10.0
-	px := -uY
+	px := -uy
 	py := ux
 	p1x := x1 - ux*sz + px*(sz*0.6)
-	p1y := y1 - uY*sz + py*(sz*0.6)
+	p1y := y1 - uy*sz + py*(sz*0.6)
 	p2x := x1 - ux*sz - px*(sz*0.6)
-	p2y := y1 - uY*sz - py*(sz*0.6)
-	drawLine(img, x1, y1, p1x, p1y, clr)
-	drawLine(img, x1, y1, p2x, p2y, clr)
+	p2y := y1 - uy*sz - py*(sz*0.6)
+	drawFilledTriangle(screen, x1, y1, p1x, p1y, p2x, p2y, clr)
 }
 
-// drawForceGraph rysuje prosty wykres liniowy w podanym prostokącie
-// obsługuje autoskalowanie po osi Y, w tym zakresy ujemne.
+// drawLine - prosty Bresenham do rysowania linii (używany do wykresów/ikon)
+func drawLine(img *ebiten.Image, x0, y0, x1, y1 float64, clr color.RGBA) {
+	ix0 := int(math.Round(x0))
+	iy0 := int(math.Round(y0))
+	ix1 := int(math.Round(x1))
+	iy1 := int(math.Round(y1))
+	dx := int(math.Abs(float64(ix1 - ix0)))
+	sx := 1
+	if ix0 >= ix1 {
+		sx = -1
+	}
+	dy := -int(math.Abs(float64(iy1 - iy0)))
+	sy := 1
+	if iy0 >= iy1 {
+		sy = -1
+	}
+	err := dx + dy
+	for {
+		if ix0 >= 0 && iy0 >= 0 && ix0 < screenWidth && iy0 < screenHeight {
+			img.Set(ix0, iy0, clr)
+		}
+		if ix0 == ix1 && iy0 == iy1 {
+			break
+		}
+		e2 := 2 * err
+		if e2 >= dy {
+			err += dy
+			ix0 += sx
+		}
+		if e2 <= dx {
+			err += dx
+			iy0 += sy
+		}
+	}
+}
+
+// drawCircle - wypełnione koło (prostą metodą) - wystarczające dla małych promieni
+func drawCircle(screen *ebiten.Image, cx, cy, r float64, clr color.RGBA) {
+	ir := int(math.Ceil(r))
+	rr := r * r
+	for dy := -ir; dy <= ir; dy++ {
+		y := int(math.Round(cy)) + dy
+		if y < 0 || y >= screenHeight {
+			continue
+		}
+		xspan := math.Sqrt(math.Max(0, rr-float64(dy*dy)))
+		xmin := int(math.Round(cx - xspan))
+		xmax := int(math.Round(cx + xspan))
+		if xmin < 0 {
+			xmin = 0
+		}
+		if xmax >= screenWidth {
+			xmax = screenWidth - 1
+		}
+		for x := xmin; x <= xmax; x++ {
+			screen.Set(x, y, clr)
+		}
+	}
+}
+
+// drawForceGraph rysuje wykres z autoskalowaniem Y i etykietą (w prostszej formie)
 func drawForceGraph(screen *ebiten.Image, data []float64, x, y, w, h int, lineColor color.RGBA, title string) {
-	// tło i obramowanie (zawsze rysujemy panel nawet gdy brak danych)
+	// tło
 	bg := ebiten.NewImage(w, h)
 	bg.Fill(color.RGBA{8, 8, 16, 200})
 	op := &ebiten.DrawImageOptions{}
 	op.GeoM.Translate(float64(x), float64(y))
 	screen.DrawImage(bg, op)
 
+	// border
 	border := ebiten.NewImage(w-2, h-2)
 	border.Fill(color.RGBA{30, 30, 40, 80})
 	op2 := &ebiten.DrawImageOptions{}
@@ -527,11 +654,9 @@ func drawForceGraph(screen *ebiten.Image, data []float64, x, y, w, h int, lineCo
 	}
 
 	if len(data) == 0 {
-		// brak danych - pozostaw panel
 		return
 	}
 
-	// znajdź min i max
 	minV := data[0]
 	maxV := data[0]
 	for _, v := range data {
@@ -542,15 +667,12 @@ func drawForceGraph(screen *ebiten.Image, data []float64, x, y, w, h int, lineCo
 			maxV = v
 		}
 	}
-
-	// jeśli mamy wartości po obu stronach 0, ustaw symetryczny zakres wokół zera
+	// symetryczne wokol zera gdy mamy ujemne i dodatnie
 	if minV < 0 && maxV > 0 {
 		b := math.Max(math.Abs(minV), math.Abs(maxV))
 		minV = -b
 		maxV = b
 	}
-
-	// jeśli min==max, rozszerz zakres
 	if minV == maxV {
 		maxV = maxV + 1.0
 		minV = minV - 1.0
@@ -563,14 +685,12 @@ func drawForceGraph(screen *ebiten.Image, data []float64, x, y, w, h int, lineCo
 	padding := 6
 	gw := float64(w - padding*2)
 	gh := float64(h - padding*2)
-
-	// rysuj siatkę (4 poziome linie)
+	// rysuj siatkę
 	for i := 0; i <= 4; i++ {
 		yy := float64(y+padding) + gh*float64(i)/4.0
 		drawLine(screen, float64(x+padding), yy, float64(x+w-padding), yy, color.RGBA{40, 40, 60, 120})
 	}
-
-	// linia zero (jeśli w zakresie)
+	// linia zero
 	if minV <= 0 && maxV >= 0 {
 		t := (0 - minV) / (maxV - minV)
 		zy := float64(y+padding) + gh*(1.0-t)
@@ -593,8 +713,6 @@ func drawForceGraph(screen *ebiten.Image, data []float64, x, y, w, h int, lineCo
 			py = ny
 		}
 	}
-
-	// etykieta zakresu
 	lbl := fmt.Sprintf("%.3e..%.3e", minV, maxV)
 	text.Draw(screen, lbl, basicfont.Face7x13, x+6, y+h-6, color.RGBA{180, 180, 200, 180})
 }
@@ -602,9 +720,14 @@ func drawForceGraph(screen *ebiten.Image, data []float64, x, y, w, h int, lineCo
 // Draw ---
 func (g *Game) Draw(screen *ebiten.Image) {
 	// trails
+	margin := 64
 	for _, trail := range g.trails {
 		for _, s := range trail {
-			drawLine(screen, s.X0, s.Y0, s.X1, s.Y1, s.Color)
+			// pomiń segmenty całkowicie poza widocznym obszarem (z marginesem)
+			if (int(s.X0) < -margin && int(s.X1) < -margin) || (int(s.X0) > screenWidth+margin && int(s.X1) > screenWidth+margin) || (int(s.Y0) < -margin && int(s.Y1) < -margin) || (int(s.Y0) > screenHeight+margin && int(s.Y1) > screenHeight+margin) {
+				continue
+			}
+			drawSmoothSegment(screen, s.X0, s.Y0, s.X1, s.Y1, s.Color)
 		}
 	}
 	// bodies
@@ -725,7 +848,7 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		y2 := float64(screenHeight)/2 + b2.Pos.Y
 		// narysuj strzałkę od 1 do 2
 		arrowColor := color.RGBA{255, 200, 0, 220}
-		drawArrowWithHead(screen, x1, y1, x2, y2, arrowColor)
+		drawSmoothArrow(screen, x1, y1, x2, y2, arrowColor)
 		// oblicz wartość siły i narysuj tekst w połowie
 		dx := b2.Pos.X - b1.Pos.X
 		dy := b2.Pos.Y - b1.Pos.Y
@@ -890,7 +1013,7 @@ func drawShortcuts(screen *ebiten.Image, g *Game) {
 	screen.DrawImage(panel, op)
 }
 
-func (g *Game) Layout(outsideWidth, outsideHeight int) (int, int) {
+func (g *Game) Layout(_, _ int) (int, int) {
 	return screenWidth, screenHeight
 }
 
@@ -989,4 +1112,56 @@ func drawResetModal(screen *ebiten.Image) {
 	op2 := &ebiten.DrawImageOptions{}
 	op2.GeoM.Translate(float64(x), float64(y))
 	screen.DrawImage(panel, op2)
+}
+
+func abs(a float64) float64 {
+	if a < 0 {
+		return -a
+	}
+	return a
+}
+func maxf(a, b float64) float64 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func pointInRect(px, py, rx, ry, rw, rh int) bool {
+	return px >= rx && px <= rx+rw && py >= ry && py <= ry+rh
+}
+
+func drawButton(screen *ebiten.Image, x, y, w, h int, label string, active bool, disabled bool, hover bool) {
+	btn := ebiten.NewImage(w, h)
+	bg := color.RGBA{20, 20, 20, 200}
+	textColor := color.RGBA{240, 240, 240, 255}
+	if disabled {
+		bg = color.RGBA{60, 60, 60, 160}
+		textColor = color.RGBA{160, 160, 160, 200}
+	} else {
+		if active {
+			bg = color.RGBA{60, 120, 60, 220}
+		}
+		if hover {
+			if active {
+				bg = color.RGBA{100, 190, 100, 240}
+			} else {
+				bg = color.RGBA{90, 90, 90, 230}
+			}
+		}
+	}
+	btn.Fill(bg)
+	inner := ebiten.NewImage(w-2, h-2)
+	inner.Fill(color.RGBA{40, 40, 40, 120})
+	opInner := &ebiten.DrawImageOptions{}
+	opInner.GeoM.Translate(1, 1)
+	btn.DrawImage(inner, opInner)
+	charW := 7
+	cw := len(label) * charW
+	xText := (w - cw) / 2
+	yText := (h + 8) / 2
+	text.Draw(btn, label, basicfont.Face7x13, xText, yText, textColor)
+	op2 := &ebiten.DrawImageOptions{}
+	op2.GeoM.Translate(float64(x), float64(y))
+	screen.DrawImage(btn, op2)
 }
