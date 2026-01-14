@@ -1,6 +1,6 @@
 package physics
 
-const G = 6.67430e-1 // sztucznie zwiększone dla wizualizacji
+const G = 6.67430e-1 // stala grawitacji
 
 func ComputeAcceleration(b1 Body, others []Body) Vec2 {
 	force := Vec2{0, 0}

@@ -34,7 +34,7 @@ func (v Vec2) Normalize() Vec2 {
 	return Vec2{v.X / l, v.Y / l}
 }
 
-// --- Ciało fizyczne ---
+// Ciało
 type Body struct {
 	Mass   float64
 	Pos    Vec2
@@ -42,11 +42,8 @@ type Body struct {
 	Acc    Vec2
 	Radius float64
 	ColorC color.RGBA
-
-	// jeśli Locked == true, ciało jest unieruchomione i nie porusza się
-	Locked bool
-	// jeśli Anti == true, ciało generuje anty-grawitację (odpycha zamiast przyciągać)
-	Anti bool
+	Locked bool // unieruchomione
+	Anti   bool // antygrawitacja
 }
 
 func (b *Body) Update(dt float64, bodies []Body) {
