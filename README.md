@@ -60,7 +60,3 @@ Extending the project:
 
 Troubleshooting:
 - If bodies "explode" or diverge, lower the `dt` in the JSON config or increase the softening parameter (`epsilon`) in `pkg/physics/gravity.go`.
-
-License: none specified — add a LICENSE file if you plan to publish this repository publicly.
-
-
