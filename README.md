@@ -1,72 +1,66 @@
 # gravity-sim
 
-Prosty symulator grawitacyjny N-ciał napisany w Go z użyciem biblioteki Ebiten do wizualizacji.
+A simple N-body gravity simulator written in Go with Ebiten for visualization.
 
-Cechy:
-- Symulacja grawitacji (z opcją "antygrawitacji" dla wybranych ciał).
-- Metoda czasowa: semi-implicit (symplectic) Euler.
-- Możliwość wczytania gotowych układów z plików JSON w `pkg/assets/`.
-- Interaktywne sterowanie (pauza, krok, dodawanie ciał, zmiana masy/promienia, tryb blokowania i antygrawitacji).
+Features:
+- N-body gravitational simulation with optional "anti-gravity" for selected bodies.
+- Time integrator: semi-implicit (symplectic) Euler.
+- Loadable scene configurations from JSON files in `pkg/assets/`.
+- Interactive controls: pause, step, add bodies, change mass/radius, lock bodies, toggle anti-gravity.
 
-Wymagania:
-- Go 1.25 lub nowsze
-- Biblioteka Ebiten (zdefiniowana w `go.mod`)
+Requirements:
+- Go 1.25 or newer
+- The Ebiten library (declared in `go.mod`)
 
-Szybki start (PowerShell):
+Quick start (PowerShell):
 
 ```powershell
-# z katalogu projektu
+# with sample solar config
 go build -o gravity-sim.exe
-# uruchom z przykładową konfiguracją (przykłady znajdują się w pkg/assets)
-.\gravity-sim.exe -config pkg/assets/solar.json
 ```
 
-Dostępne pliki konfiguracyjne:
-- `pkg/assets/solar.json` — przykładowy układ słoneczny
-- `pkg/assets/3body.json` — przykładowy układ 3-ciał
-- `pkg/assets/space.json` — układ testowy
+Available sample configs:
+- `pkg/assets/solar.json` — sample solar-system-like scene
+- `pkg/assets/3body.json` — three-body example
+- `pkg/assets/space.json` — test scene
 
-Konfiguracja (krótkie objaśnienie):
-- `name` — nazwa środowiska
-- `dt` — krok czasowy symulacji (float)
-- `bodies` — lista ciał, każde z `mass`, `pos` [x,y], `vel` [x,y], `color` (hex)
-- `auto_orbit` — jeżeli true, to prędkości orbitalne dla ciał poza pierwszym zostaną ustawione automatycznie (pierwsze ciało traktowane jest jako centralne)
+Configuration:
+- `name` — environment name
+- `dt` — simulation timestep (float)
+- `bodies` — array of bodies, each with `mass`, `pos` [x,y], `vel` [x,y], `color` (hex)
+- `auto_orbit` — if true, velocities for bodies after the first will be set to circular orbital speeds around the first body (the first body is treated as the central mass)
 
-Jak to działa (technicznie):
-- Reprezentacja wektorów 2D: `pkg/physics/body.go` (`Vec2`).
-- Ciała: `Body` (masa, pozycja, prędkość, przyspieszenie, promień, kolor, flagi `Locked` i `Anti`).
-- Siła grawitacji: `pkg/physics/gravity.go` — oblicza przyspieszenie dla ciała biorąc pod uwagę inne ciała z prostym softeningem (parametr epsilon).
-- Integrator: `pkg/physics/integrator.go` — semi-implicit Euler (najpierw aktualizacja prędkości, potem pozycji) zapewniający lepszą stabilność energetyczną niż jawny Euler.
+How it works:
+- 2D vectors are defined in `pkg/physics/body.go` as `Vec2`.
+- Bodies are represented by the `Body` struct (mass, position, velocity, acceleration, radius, color, `Locked` and `Anti` flags).
+- Gravitational acceleration is computed in `pkg/physics/gravity.go` using a softening parameter to avoid singularities.
+- The integrator is implemented in `pkg/physics/integrator.go` using a semi-implicit (symplectic) Euler scheme: velocities are updated first, then positions.
 
-Sterowanie (wybrane skróty klawiszowe):
-- P — pauza / wznowienie
-- N — jeden krok (gdy pauza)
-- H — pokaż/ukryj skróty
-- L — toggluje Locked (gdy w trybie dodawania albo dla wybranego ciała)
-- V — toggluje Anti (antygrawitacja)
-- R / T — powiększ / zmniejsz promień (dla zaznaczonego ciała)
-- = / - (lub K / J) — zwiększ / zmniejsz masę
+Controls (selected keys):
+- P — pause / resume
+- N — advance one step (when paused)
+- H — toggle shortcuts visibility
+- L — toggle Locked for the selected body or when adding a new body
+- V — toggle Anti (anti-gravity)
+- R / T — increase / decrease radius for the selected body
+- = / - (or K / J) — increase / decrease mass
 
-Struktura projektu (ważniejsze pliki):
-- `main.go` — UI, obsługa wejścia, renderowanie, zarządzanie symulacją
-- `pkg/physics/body.go` — definicje wektorów i struktur ciał oraz podstawowe operacje
-- `pkg/physics/gravity.go` — obliczanie przyspieszeń grawitacyjnych
-- `pkg/physics/integrator.go` — integrator semi-implicit Euler
-- `pkg/simulation/config.go` — wczytywanie konfiguracji z JSON i ustawianie prędkości orbitalnych
-- `pkg/simulation/simulator.go` — (logika symulatora, zarządzanie krokami)
+Project structure:
+- `main.go` — UI, input handling, rendering, and simulation orchestration
+- `pkg/physics/body.go` — vector and body definitions and basic operations
+- `pkg/physics/gravity.go` — computing gravitational accelerations
+- `pkg/physics/integrator.go` — semi-implicit Euler integrator
+- `pkg/simulation/config.go` — reading JSON configuration and setting orbital velocities
+- `pkg/simulation/simulator.go` — simulation loop and step management
 
-Rozszerzanie:
-- Dodaj nowe pliki JSON w `pkg/assets/` z konfiguracją ciał.
-- Możesz dodać inne metody całkowania w `pkg/physics` (np. RK4) i przełączać w `simulation`.
+Extending the project:
+- Add new JSON scene files under `pkg/assets/` to define initial setups.
+- Implement additional integrators (e.g., RK4) in `pkg/physics` and wire them into `pkg/simulation`.
+- Make parameters like the gravitational constant or softening configurable at runtime.
 
-Problemy i debugowanie:
-- Jeżeli ciała "wybuchają" przy kroku dt, zmniejsz `dt` w pliku JSON lub zwiększ `epsilon` w `gravity.go` (softening).
+Troubleshooting:
+- If bodies "explode" or diverge, lower the `dt` in the JSON config or increase the softening parameter (`epsilon`) in `pkg/physics/gravity.go`.
 
-Licencja: brak określonej (dodaj plik LICENSE jeśli chcesz udostępnić projekt publicznie)
+License: none specified — add a LICENSE file if you plan to publish this repository publicly.
 
----
 
-Jeżeli chcesz, mogę teraz:
-- Rozwinąć README o diagramy i przykłady wyników.
-- Napisać szczegółową dokumentację API (dla plików w `pkg/`).
-- Przejść linię po linii przez `pkg/physics/gravity.go` (jeśli chcesz, mogę to zrobić teraz).
