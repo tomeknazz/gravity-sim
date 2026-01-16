@@ -12,11 +12,11 @@ Requirements:
 - Go 1.25 or newer
 - The Ebiten library (declared in `go.mod`)
 
-Quick start (PowerShell):
+Quick start:
 
 ```powershell
 # with sample solar config
-go build -o gravity-sim.exe
+go run main.go -env solar
 ```
 
 Available sample configs:
