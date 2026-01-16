@@ -12,6 +12,8 @@ Requirements:
 - Go 1.25 or newer
 - The Ebiten library (declared in `go.mod`)
 
+![img.png](img.png)
+
 Quick start:
 
 ```powershell
